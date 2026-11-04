@@ -487,6 +487,25 @@ const skyBezierPath = {
     p3: [15.0, 10.0, -10.0]
 };
 
+// Three flying stars with different sizes and positions along the path
+const flyingStars = [
+    { size: 1.2, phase: 0.0 },
+    { size: 0.85, phase: 0.67 },
+    { size: 0.55, phase: 1.33 }
+];
+
+// Each star is assembled from six cubes
+const starParts = [
+    { offset: [0.0, 0.0, 0.0], scale: 0.75 },
+    { offset: [0.0, 0.0, -1.0], scale: 0.65 },
+    { offset: [0.85, 0.0, -0.4], scale: 0.65 },
+    { offset: [0.55, 0.0, 0.75], scale: 0.65 },
+    { offset: [-0.55, 0.0, 0.75], scale: 0.65 },
+    { offset: [-0.85, 0.0, -0.4], scale: 0.65 }
+];
+
+const STAR_COLOR = [1.0, 0.78, 0.15];
+
 // -----------------------------------------------------------------------------
 // Step 7. Render Loop
 // -----------------------------------------------------------------------------
@@ -533,32 +552,55 @@ function render(timeInMilliseconds) {
         gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
     }
 
-    // 3. Draw Sky Objects Flying along Bézier Curve (Level 3)
-    const cycle = (seconds * 0.2) % 2.0;
-    const t = cycle <= 1.0 ? cycle : 2.0 - cycle;
-    const skyPos = evaluateCubicBezier(
-        skyBezierPath.p0,
-        skyBezierPath.p1,
-        skyBezierPath.p2,
-        skyBezierPath.p3,
-        t
-    );
 
-    const skyCubes = [
-        { offset: [0.0, 0.0, 0.0], scale: [2.5, 1.0, 1.5], color: [0.95, 0.95, 0.98] },
-        { offset: [0.8, 0.5, 0.0], scale: [1.5, 0.8, 1.2], color: [0.85, 0.88, 0.95] },
-    ];
+    // 3. Draw Three Flying Stars along Bézier Curve (Level 3)
 
-    for (let i = 0; i < skyCubes.length; i++) {
-        const c = skyCubes[i];
-        const pos = [
-            skyPos[0] + c.offset[0],
-            skyPos[1] + c.offset[1],
-            skyPos[2] + c.offset[2]
-        ];
-        gl.uniformMatrix4fv(u_model, false, makeModelMatrix(pos, c.scale));
-        gl.uniform3fv(u_color, c.color);
-        gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+    for (let s = 0; s < flyingStars.length; s++) {
+
+        const star = flyingStars[s];
+
+        // Calculate an individual forward-and-backward animation cycle
+        const cycle = (seconds * 0.2 + star.phase) % 2.0;
+        const t = cycle <= 1.0 ? cycle : 2.0 - cycle;
+
+        // Find the star's position along the Bézier curve
+        const starPos = evaluateCubicBezier(
+            skyBezierPath.p0,
+            skyBezierPath.p1,
+            skyBezierPath.p2,
+            skyBezierPath.p3,
+            t
+        );
+        // Raise the stars higher above the terrain
+        starPos[1] += 5.0;
+
+        // Draw the six cubes that form this star
+        for (let i = 0; i < starParts.length; i++) {
+
+            const part = starParts[i];
+
+            const pos = [
+                starPos[0] + part.offset[0] * star.size,
+                starPos[1] + part.offset[1] * star.size,
+                starPos[2] + part.offset[2] * star.size
+            ];
+
+            const cubeScale = [
+                part.scale * star.size,
+                part.scale * star.size,
+                part.scale * star.size
+            ];
+
+            gl.uniformMatrix4fv(
+                u_model,
+                false,
+                makeModelMatrix(pos, cubeScale)
+            );
+
+            gl.uniform3fv(u_color, STAR_COLOR);
+
+            gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+        }
     }
 
     requestAnimationFrame(render);
