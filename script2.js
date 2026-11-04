@@ -194,59 +194,165 @@ function evaluateCubicBezier(p0, p1, p2, p3, t) {
 // -----------------------------------------------------------------------------
 let groundObjects = [];
 
-function buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, maxHeight = 7.0, isSingleImage = false) {
+// function buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, maxHeight = 7.0) {
+//     const newGroundObjects = [];
+
+//     // Define a fixed overall world width and depth for the landscape
+//     const TOTAL_WORLD_SIZE = 36.0;
+//     const cubeSize = TOTAL_WORLD_SIZE / gridWidth; // Cubes shrink as grid resolution increases
+
+//     const halfWidth = gridWidth / 2;
+//     const halfDepth = gridDepth / 2;
+
+//     for (let z = 0; z < gridDepth; z++) {
+//         for (let x = 0; x < gridWidth; x++) {
+//             const idx = (z * gridWidth + x) * 4;
+
+//             const r = colorPixels[idx] / 255.0;
+//             const g = colorPixels[idx + 1] / 255.0;
+//             const b = colorPixels[idx + 2] / 255.0;
+
+//             const hr = heightPixels[idx] / 255.0;
+//             const hg = heightPixels[idx + 1] / 255.0;
+//             const hb = heightPixels[idx + 2] / 255.0;
+
+//             const hIntensity = (hr + hg + hb) / 3.0;
+
+//             const h = Math.max(0.15, hIntensity * maxHeight);
+
+//             // Center the grid around (0,0,0) with dynamic cube positioning
+//             const posX = (x - halfWidth + 0.5) * cubeSize;
+//             const posZ = (z - halfDepth + 0.5) * cubeSize;
+
+//             newGroundObjects.push({
+//                 position: [posX, h / 2.0, posZ],
+//                 // Scale X and Z dynamically (0.98 maintains a crisp gap between cubes)
+//                 scale: [cubeSize * 0.98, h, cubeSize * 0.98],
+//                 color: [r, g, b]
+//             });
+//         }
+//     }
+//     groundObjects = newGroundObjects;
+// }
+
+
+
+function buildTerrainFromPixels(
+    colorPixels,
+    heightPixels,
+    gridWidth,
+    gridDepth,
+    maxHeight = 7.0
+) {
     const newGroundObjects = [];
 
-    // Define a fixed overall world width and depth for the landscape
+    // Overall terrain dimensions
     const TOTAL_WORLD_SIZE = 36.0;
-    const cubeSize = TOTAL_WORLD_SIZE / gridWidth; // Cubes shrink as grid resolution increases
+    const cubeSize = TOTAL_WORLD_SIZE / gridWidth;
 
     const halfWidth = gridWidth / 2;
     const halfDepth = gridDepth / 2;
 
+    // Hurricane center (assumes the hurricane is centered in the image)
+    const centerX = (gridWidth - 1) / 2;
+    const centerZ = (gridDepth - 1) / 2;
+
+    // Maximum distance from the center to a corner
+    const maxRadius = Math.sqrt(
+        centerX * centerX + centerZ * centerZ
+    );
+
+    // Height-map settings
+    const OCEAN_THRESHOLD = 0.35;
+    const MIN_STORM_HEIGHT = 0.15;
+
     for (let z = 0; z < gridDepth; z++) {
         for (let x = 0; x < gridWidth; x++) {
+
             const idx = (z * gridWidth + x) * 4;
 
+            // -------------------------------------------------
+            // 1. Get original color from the color map
+            // -------------------------------------------------
             const r = colorPixels[idx] / 255.0;
             const g = colorPixels[idx + 1] / 255.0;
             const b = colorPixels[idx + 2] / 255.0;
 
-            let hIntensity;
-            if (isSingleImage) {
-                hIntensity = 0.299 * r + 0.587 * g + 0.114 * b;
-            } else {
-                const hr = heightPixels[idx] / 255.0;
-                const hg = heightPixels[idx + 1] / 255.0;
-                const hb = heightPixels[idx + 2] / 255.0;
-                hIntensity = (hr + hg + hb) / 3.0;
+            // -------------------------------------------------
+            // 2. Convert height-map pixel to grayscale
+            // -------------------------------------------------
+            const hr = heightPixels[idx] / 255.0;
+            const hg = heightPixels[idx + 1] / 255.0;
+            const hb = heightPixels[idx + 2] / 255.0;
+
+            const gray = 0.299 * hr + 0.587 * hg + 0.114 * hb;
+
+            // -------------------------------------------------
+            // 3. Separate ocean from hurricane
+            // -------------------------------------------------
+            let stormMask = 0;
+
+            if (gray > OCEAN_THRESHOLD) {
+                stormMask = (gray - OCEAN_THRESHOLD) /
+                    (1.0 - OCEAN_THRESHOLD);
             }
 
-            const h = Math.max(0.15, hIntensity * maxHeight);
+            // -------------------------------------------------
+            // 4. Calculate distance from hurricane center
+            // -------------------------------------------------
+            const dx = x - centerX;
+            const dz = z - centerZ;
 
-            // Center the grid around (0,0,0) with dynamic cube positioning
+            const radius = Math.sqrt(dx * dx + dz * dz);
+            const normalizedRadius = radius / maxRadius;
+
+            // -------------------------------------------------
+            // 5. Create radial height profile
+            // Higher center -> shorter outer bands
+            // -------------------------------------------------
+            const radialFactor = 2 - normalizedRadius;
+
+            // -------------------------------------------------
+            // 6. Calculate final cube height
+            // Ocean remains low; storm gets radial variation
+            // -------------------------------------------------
+            let h = MIN_STORM_HEIGHT +
+                stormMask * radialFactor * maxHeight;
+
+            // Keep ocean almost flat
+            if (gray <= OCEAN_THRESHOLD) {
+                h = MIN_STORM_HEIGHT;
+            }
+
+            // -------------------------------------------------
+            // 7. Position each cube
+            // -------------------------------------------------
             const posX = (x - halfWidth + 0.5) * cubeSize;
             const posZ = (z - halfDepth + 0.5) * cubeSize;
 
             newGroundObjects.push({
                 position: [posX, h / 2.0, posZ],
-                // Scale X and Z dynamically (0.98 maintains a crisp gap between cubes)
-                scale: [cubeSize * 0.98, h, cubeSize * 0.98],
+                scale: [
+                    cubeSize * 0.98,
+                    h,
+                    cubeSize * 0.98
+                ],
                 color: [r, g, b]
             });
         }
     }
+
     groundObjects = newGroundObjects;
 }
 
 // Load terrain from colormap.png & heightmap.png
-function loadTerrainFromLocalFolder(colorMapPath = 'colormap.png', heightMapPath = 'heightmap.png', gridWidth = 300, gridDepth = 300) {
+function loadTerrainFromLocalFolder(colorMapPath = 'colormap.png', heightMapPath = 'heightmap.png', gridWidth = 225, gridDepth = 225) {
     let colorPixels = null;
     let heightPixels = null;
 
     const checkAndBuild = () => {
         if (colorPixels && heightPixels) {
-            buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, 7.0, false);
+            buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, 7.0);
         }
     };
 
@@ -261,7 +367,7 @@ function loadTerrainFromLocalFolder(colorMapPath = 'colormap.png', heightMapPath
         checkAndBuild();
     };
     colorImg.onerror = () => {
-        loadFallbackTerrain(gridWidth, gridDepth);
+        alert('Error: Could not load colormap.png. Please check that the file exists in the project folder.');
     };
     colorImg.src = colorMapPath;
 
@@ -276,7 +382,7 @@ function loadTerrainFromLocalFolder(colorMapPath = 'colormap.png', heightMapPath
         checkAndBuild();
     };
     heightImg.onerror = () => {
-        loadFallbackTerrain(gridWidth, gridDepth);
+        alert('Error: Could not load heightmap.png. Please check that the file exists in the project folder.');
     };
     heightImg.src = heightMapPath;
 }
@@ -428,7 +534,8 @@ function render(timeInMilliseconds) {
     }
 
     // 3. Draw Sky Objects Flying along Bézier Curve (Level 3)
-    const t = (seconds * 0.2) % 1.0;
+    const cycle = (seconds * 0.2) % 2.0;
+    const t = cycle <= 1.0 ? cycle : 2.0 - cycle;
     const skyPos = evaluateCubicBezier(
         skyBezierPath.p0,
         skyBezierPath.p1,
