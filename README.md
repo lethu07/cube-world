@@ -3,7 +3,7 @@
 **Author:** Thu Le  
 **Course:** Computer Graphics I  
 **Repository:** [github.com/lethu07/cube-world](https://github.com/lethu07/cube-world)  
-**Live Demo:**  
+**Live Demo:**  [lethu07.github.io/cube-world](https://lethu07.github.io/cube-world/) 
 **Demo Video:**  
 
 ## Design plan
