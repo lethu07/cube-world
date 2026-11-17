@@ -27,52 +27,79 @@
             position: absolute;
             top: 15px;
             left: 15px;
+            box-sizing: border-box;
+            width: 240px;
+            max-width: calc(100vw - 30px);
             background: rgba(20, 25, 35, 0.85);
             color: #ffffff;
             padding: 12px 16px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
             z-index: 10;
+            font-size: 12px;
         }
 
         #ui-panel h3 {
             margin: 0 0 6px 0;
             font-size: 15px;
-            color: #4da6ff;
         }
 
-        #ui-panel ul {
-            margin: 0;
-            padding-left: 18px;
-            font-size: 12px;
-            color: #cbd5e1;
-            line-height: 1.5;
+        #ui-panel p {
+            margin: 0 0 12px;
+            line-height: 1.4;
         }
 
-        label {
-            font-size: 12px;
-            color: #cbd5e1;
+        #ui-panel label {
             display: block;
-            margin-top: 8px;
+            margin-bottom: 6px;
+            color: #cbd5e1;
         }
 
-        input[type="file"] {
-            margin-top: 4px;
-            color: #ffffff;
-            font-size: 12px;
-            display: block;
+        #levelSelect,
+        #resolutionSelect {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            background: #10141a;
+            color: #e2e8f0;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        #levelSelect:focus-visible,
+        #resolutionSelect:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 2px;
         }
     </style>
 </head>
 
 <body>
     <div id="ui-panel">
-        <ul>
-            <li><b>A / D</b> or <b>Left / Right</b>: Rotate Camera</li>
-            <li><b>W / S</b> or <b>Up / Down</b>: Zoom In / Out</li>
-            <li><b>Q / E</b>: Move Camera Up / Down</li>
-            <li><b>R</b>: Reset Camera Position</li>
-        </ul>
+        <h3>Cube World - Thu Le</h3>
+
+        <p>
+            A cube-based hurricane landscape shaped by color and height maps,
+            with stars traveling along Bézier curves above
+        </p>
+
+        <label for="levelSelect">Scene level</label>
+        <select id="levelSelect">
+            <option value="1a">Level 1a</option>
+            <option value="1bc">Level 1b/c</option>
+            <option value="2">Level 2</option>
+            <option value="3">Level 3</option>
+            <option value="4">Level 4</option>
+        </select>
+
+        <label for="resolutionSelect">Terrain resolution</label>
+        <select id="resolutionSelect" disabled>
+            <option value="30">30 x 30</option>
+            <option value="100">100 x 100</option>
+            <option value="300">300 x 300</option>
+        </select>
     </div>
 
     <canvas id="glcanvas"></canvas>

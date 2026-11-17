@@ -1,118 +1,142 @@
-
-// Step 1. Get WebGL Context
+// WebGL setup
 const canvas = document.getElementById('glcanvas');
 const gl = canvas.getContext('webgl');
 
 if (!gl) {
     alert('Sorry, your browser does not support WebGL.');
+    throw new Error('WebGL is not available.');
 }
 
-// Step 2. Shaders
+// Shaders
 const vertexShaderSource = /* glsl */ `
   attribute vec3 a_position;
-  attribute float a_shade;
+  attribute vec3 a_color;
 
   uniform mat4 u_model;
   uniform mat4 u_view;
   uniform mat4 u_projection;
 
-  varying float v_shade;
+  varying vec3 v_color;
+  varying float v_fogDistance;
 
   void main() {
-    gl_Position = u_projection * u_view * u_model * vec4(a_position, 1.0);
-    v_shade = a_shade;
+    vec4 viewPosition = u_view * u_model * vec4(a_position, 1.0);
+    gl_Position = u_projection * viewPosition;
+    v_color = a_color;
+    // Level 4 distance to blend distant cubes into the fog
+    v_fogDistance = length(viewPosition.xyz);
   }
 `;
 
 const fragmentShaderSource = /* glsl */ `
   precision mediump float;
 
-  uniform vec3 u_color;
-  varying float v_shade;
+  uniform vec3 u_mapColor;
+  uniform float u_useMapColor;
+  uniform float u_useFog;
+
+  varying vec3 v_color;
+  varying float v_fogDistance;
 
   void main() {
-    gl_FragColor = vec4(u_color * v_shade, 1.0);
+    vec3 color = v_color;
+    if (u_useMapColor > 0.5) {
+      color = u_mapColor;
+    }
+    if (u_useFog > 0.5) { // Level 4 add fog based on distance from camera
+      float fogAmount = smoothstep(25.0, 60.0, v_fogDistance);
+      color = mix(color, vec3(0.1, 0.12, 0.16), fogAmount);
+    }
+    gl_FragColor = vec4(color, 1.0);
   }
 `;
 
-// Step 3. Compile Shaders & Link Program
 function compileShader(type, source) {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(shader));
+        throw new Error(gl.getShaderInfoLog(shader));
     }
     return shader;
 }
 
-const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
-const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
-
 const program = gl.createProgram();
-gl.attachShader(program, vertexShader);
-gl.attachShader(program, fragmentShader);
+gl.attachShader(program, compileShader(gl.VERTEX_SHADER, vertexShaderSource));
+gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource));
 gl.linkProgram(program);
 if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(program));
+    throw new Error(gl.getProgramInfoLog(program));
 }
-
 gl.useProgram(program);
 
-const a_position = gl.getAttribLocation(program, 'a_position');
-const a_shade = gl.getAttribLocation(program, 'a_shade');
-const u_model = gl.getUniformLocation(program, 'u_model');
-const u_view = gl.getUniformLocation(program, 'u_view');
-const u_projection = gl.getUniformLocation(program, 'u_projection');
-const u_color = gl.getUniformLocation(program, 'u_color');
+const aPosition = gl.getAttribLocation(program, 'a_position');
+const aColor = gl.getAttribLocation(program, 'a_color');
+const uModel = gl.getUniformLocation(program, 'u_model');
+const uView = gl.getUniformLocation(program, 'u_view');
+const uProjection = gl.getUniformLocation(program, 'u_projection');
+const uMapColor = gl.getUniformLocation(program, 'u_mapColor');
+const uUseMapColor = gl.getUniformLocation(program, 'u_useMapColor');
+const uUseFog = gl.getUniformLocation(program, 'u_useFog');
 
-// Step 4. Describe a cube (geometry) and upload its data to the GPU (buffers)
+// Cube geometry and vertex colors
 const cubePositions = new Float32Array([
-    // Front face (z = +0.5)
+    // Front
     -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5,
     -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
-    // Back face (z = -0.5)
+    // Back
     0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5,
     0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5,
-    // Top face (y = +0.5)
+    // Top
     -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5,
     -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5,
-    // Bottom face (y = -0.5)
+    // Bottom
     -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, 0.5,
     -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0.5,
-    // Right face (x = +0.5)
+    // Right
     0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
     0.5, -0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5,
-    // Left face (x = -0.5)
+    // Left
     -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5,
-    -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5,
+    -0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5
 ]);
-
-// (1.0 = full color, smaller = darker.)
-const cubeShades = new Float32Array([
-    0.85, 0.85, 0.85, 0.85, 0.85, 0.85, // front
-    0.70, 0.70, 0.70, 0.70, 0.70, 0.70, // back
-    1.00, 1.00, 1.00, 1.00, 1.00, 1.00, // top
-    0.40, 0.40, 0.40, 0.40, 0.40, 0.40, // bottom
-    0.75, 0.75, 0.75, 0.75, 0.75, 0.75, // right
-    0.60, 0.60, 0.60, 0.60, 0.60, 0.60, // left
-]);
-
 const VERTEX_COUNT = 36;
 
+// Level 1b/c: Each cube uses the same corner-color pattern & WebGL interpolates it
+const cubeColors = new Float32Array(cubePositions.length);
+for (let i = 0; i < cubePositions.length; i += 3) {
+    cubeColors[i] = cubePositions[i] + 0.5;
+    cubeColors[i + 1] = cubePositions[i + 1] + 0.5;
+    cubeColors[i + 2] = cubePositions[i + 2] + 0.5;
+}
+
+// Upload cube data to the GPU
 const positionBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, cubePositions, gl.STATIC_DRAW);
-gl.vertexAttribPointer(a_position, 3, gl.FLOAT, false, 0, 0);
-gl.enableVertexAttribArray(a_position);
+gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 0, 0);
+gl.enableVertexAttribArray(aPosition);
 
-const shadeBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, shadeBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, cubeShades, gl.STATIC_DRAW);
-gl.vertexAttribPointer(a_shade, 1, gl.FLOAT, false, 0, 0);
-gl.enableVertexAttribArray(a_shade);
+const colorBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, cubeColors, gl.STATIC_DRAW);
+gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+gl.enableVertexAttribArray(aColor);
 
-// Step 5. Matrix helpers
+// Matrix helpers
+function makeModelMatrix(position, scale, rotationY = 0) {
+    const [tx, ty, tz] = position;
+    const [sx, sy, sz] = scale;
+    const cosine = Math.cos(rotationY);
+    const sine = Math.sin(rotationY);
+    return new Float32Array([
+        cosine * sx, 0, -sine * sx, 0,
+        0, sy, 0, 0,
+        sine * sz, 0, cosine * sz, 0,
+        tx, ty, tz, 1
+    ]);
+}
+
 function subtract(a, b) {
     return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 }
@@ -130,19 +154,8 @@ function cross(a, b) {
 }
 
 function normalize(v) {
-    const length = Math.sqrt(dot(v, v));
-    return length > 0 ? [v[0] / length, v[1] / length, v[2] / length] : [0, 0, 0];
-}
-
-function makeModelMatrix(position, scale) {
-    const [tx, ty, tz] = position;
-    const [sx, sy, sz] = scale;
-    return new Float32Array([
-        sx, 0, 0, 0,
-        0, sy, 0, 0,
-        0, 0, sz, 0,
-        tx, ty, tz, 1
-    ]);
+    const length = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / length, v[1] / length, v[2] / length];
 }
 
 function lookAt(eye, target, up) {
@@ -169,9 +182,21 @@ function perspective(fieldOfView, aspect, near, far) {
     ]);
 }
 
-// -----------------------------------------------------------------------------
-// Level 3 Helper: Vector LERP & Cubic Bézier Evaluation
-// -----------------------------------------------------------------------------
+// Level 2: map sampling and terrain settings
+const GRID_SIZE = 30;
+const TERRAIN_SIZE = 30; // terrain width fixed as resolution changes
+const OCEAN_THRESHOLD = 0.35;
+const MIN_HEIGHT = 0.2;
+const TERRAIN_HEIGHT_SCALE = 2;
+const levelSelect = document.getElementById('levelSelect');
+const resolutionSelect = document.getElementById('resolutionSelect');
+let imageGridSize = Number(resolutionSelect.value);
+let currentLevel = '1a';
+let cubes = [];
+const colorMapImage = new Image();
+const heightMapImage = new Image();
+
+// Level 3: Bezier path and stars
 function lerpVec3(a, b, t) {
     return [
         a[0] + (b[0] - a[0]) * t,
@@ -180,7 +205,7 @@ function lerpVec3(a, b, t) {
     ];
 }
 
-function evaluateCubicBezier(p0, p1, p2, p3, t) {
+function evaluateBezier(p0, p1, p2, p3, t) {
     const p01 = lerpVec3(p0, p1, t);
     const p12 = lerpVec3(p1, p2, t);
     const p23 = lerpVec3(p2, p3, t);
@@ -189,328 +214,173 @@ function evaluateCubicBezier(p0, p1, p2, p3, t) {
     return lerpVec3(p012, p123, t);
 }
 
-// -----------------------------------------------------------------------------
-// LEVEL 2: Image Terrain Loader (Single or Dual Images)
-// -----------------------------------------------------------------------------
-let groundObjects = [];
-
-// function buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, maxHeight = 7.0) {
-//     const newGroundObjects = [];
-
-//     // Define a fixed overall world width and depth for the landscape
-//     const TOTAL_WORLD_SIZE = 36.0;
-//     const cubeSize = TOTAL_WORLD_SIZE / gridWidth; // Cubes shrink as grid resolution increases
-
-//     const halfWidth = gridWidth / 2;
-//     const halfDepth = gridDepth / 2;
-
-//     for (let z = 0; z < gridDepth; z++) {
-//         for (let x = 0; x < gridWidth; x++) {
-//             const idx = (z * gridWidth + x) * 4;
-
-//             const r = colorPixels[idx] / 255.0;
-//             const g = colorPixels[idx + 1] / 255.0;
-//             const b = colorPixels[idx + 2] / 255.0;
-
-//             const hr = heightPixels[idx] / 255.0;
-//             const hg = heightPixels[idx + 1] / 255.0;
-//             const hb = heightPixels[idx + 2] / 255.0;
-
-//             const hIntensity = (hr + hg + hb) / 3.0;
-
-//             const h = Math.max(0.15, hIntensity * maxHeight);
-
-//             // Center the grid around (0,0,0) with dynamic cube positioning
-//             const posX = (x - halfWidth + 0.5) * cubeSize;
-//             const posZ = (z - halfDepth + 0.5) * cubeSize;
-
-//             newGroundObjects.push({
-//                 position: [posX, h / 2.0, posZ],
-//                 // Scale X and Z dynamically (0.98 maintains a crisp gap between cubes)
-//                 scale: [cubeSize * 0.98, h, cubeSize * 0.98],
-//                 color: [r, g, b]
-//             });
-//         }
-//     }
-//     groundObjects = newGroundObjects;
-// }
-
-
-
-function buildTerrainFromPixels(
-    colorPixels,
-    heightPixels,
-    gridWidth,
-    gridDepth,
-    maxHeight = 7.0
-) {
-    const newGroundObjects = [];
-
-    // Overall terrain dimensions
-    const TOTAL_WORLD_SIZE = 36.0;
-    const cubeSize = TOTAL_WORLD_SIZE / gridWidth;
-
-    const halfWidth = gridWidth / 2;
-    const halfDepth = gridDepth / 2;
-
-    // Hurricane center (assumes the hurricane is centered in the image)
-    const centerX = (gridWidth - 1) / 2;
-    const centerZ = (gridDepth - 1) / 2;
-
-    // Maximum distance from the center to a corner
-    const maxRadius = Math.sqrt(
-        centerX * centerX + centerZ * centerZ
-    );
-
-    // Height-map settings
-    const OCEAN_THRESHOLD = 0.35;
-    const MIN_STORM_HEIGHT = 0.15;
-
-    for (let z = 0; z < gridDepth; z++) {
-        for (let x = 0; x < gridWidth; x++) {
-
-            const idx = (z * gridWidth + x) * 4;
-
-            // -------------------------------------------------
-            // 1. Get original color from the color map
-            // -------------------------------------------------
-            const r = colorPixels[idx] / 255.0;
-            const g = colorPixels[idx + 1] / 255.0;
-            const b = colorPixels[idx + 2] / 255.0;
-
-            // -------------------------------------------------
-            // 2. Convert height-map pixel to grayscale
-            // -------------------------------------------------
-            const hr = heightPixels[idx] / 255.0;
-            const hg = heightPixels[idx + 1] / 255.0;
-            const hb = heightPixels[idx + 2] / 255.0;
-
-            const gray = 0.299 * hr + 0.587 * hg + 0.114 * hb;
-
-            // -------------------------------------------------
-            // 3. Separate ocean from hurricane
-            // -------------------------------------------------
-            let stormMask = 0;
-
-            if (gray > OCEAN_THRESHOLD) {
-                stormMask = (gray - OCEAN_THRESHOLD) /
-                    (1.0 - OCEAN_THRESHOLD);
-            }
-
-            // -------------------------------------------------
-            // 4. Calculate distance from hurricane center
-            // -------------------------------------------------
-            const dx = x - centerX;
-            const dz = z - centerZ;
-
-            const radius = Math.sqrt(dx * dx + dz * dz);
-            const normalizedRadius = radius / maxRadius;
-
-            // -------------------------------------------------
-            // 5. Create radial height profile
-            // Higher center -> shorter outer bands
-            // -------------------------------------------------
-            const radialFactor = 2 - normalizedRadius;
-
-            // -------------------------------------------------
-            // 6. Calculate final cube height
-            // Ocean remains low; storm gets radial variation
-            // -------------------------------------------------
-            let h = MIN_STORM_HEIGHT +
-                stormMask * radialFactor * maxHeight;
-
-            // Keep ocean almost flat
-            if (gray <= OCEAN_THRESHOLD) {
-                h = MIN_STORM_HEIGHT;
-            }
-
-            // -------------------------------------------------
-            // 7. Position each cube
-            // -------------------------------------------------
-            const posX = (x - halfWidth + 0.5) * cubeSize;
-            const posZ = (z - halfDepth + 0.5) * cubeSize;
-
-            newGroundObjects.push({
-                position: [posX, h / 2.0, posZ],
-                scale: [
-                    cubeSize * 0.98,
-                    h,
-                    cubeSize * 0.98
-                ],
-                color: [r, g, b]
-            });
-        }
-    }
-
-    groundObjects = newGroundObjects;
-}
-
-// Load terrain from colormap.png & heightmap.png
-function loadTerrainFromLocalFolder(colorMapPath = 'colormap.png', heightMapPath = 'heightmap.png', gridWidth = 225, gridDepth = 225) {
-    let colorPixels = null;
-    let heightPixels = null;
-
-    const checkAndBuild = () => {
-        if (colorPixels && heightPixels) {
-            buildTerrainFromPixels(colorPixels, heightPixels, gridWidth, gridDepth, 7.0);
-        }
-    };
-
-    const colorImg = new Image();
-    colorImg.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = gridWidth;
-        c.height = gridDepth;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(colorImg, 0, 0, gridWidth, gridDepth);
-        colorPixels = ctx.getImageData(0, 0, gridWidth, gridDepth).data;
-        checkAndBuild();
-    };
-    colorImg.onerror = () => {
-        alert('Error: Could not load colormap.png. Please check that the file exists in the project folder.');
-    };
-    colorImg.src = colorMapPath;
-
-    const heightImg = new Image();
-    heightImg.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = gridWidth;
-        c.height = gridDepth;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(heightImg, 0, 0, gridWidth, gridDepth);
-        heightPixels = ctx.getImageData(0, 0, gridWidth, gridDepth).data;
-        checkAndBuild();
-    };
-    heightImg.onerror = () => {
-        alert('Error: Could not load heightmap.png. Please check that the file exists in the project folder.');
-    };
-    heightImg.src = heightMapPath;
-}
-
-// Fallback pattern if colormap.png and heightmap.png are not in folder yet
-// function loadFallbackTerrain(gridWidth = 300, gridDepth = 300) {
-//     const dummyColor = new Uint8ClampedArray(gridWidth * gridDepth * 4);
-//     const dummyHeight = new Uint8ClampedArray(gridWidth * gridDepth * 4);
-
-//     for (let z = 0; z < gridDepth; z++) {
-//         for (let x = 0; x < gridWidth; x++) {
-//             const idx = (z * gridWidth + x) * 4;
-//             const dx = x - gridWidth / 2;
-//             const dz = z - gridDepth / 2;
-//             const dist = Math.sqrt(dx * dx + dz * dz);
-//             const val = Math.max(0, Math.min(255, Math.floor(255 - dist * 10 + Math.sin(x * 0.4) * 40)));
-
-//             dummyHeight[idx] = val;
-//             dummyHeight[idx + 1] = val;
-//             dummyHeight[idx + 2] = val;
-//             dummyHeight[idx + 3] = 255;
-
-//             dummyColor[idx] = Math.floor(val * 0.3);
-//             dummyColor[idx + 1] = Math.floor(val * 0.8);
-//             dummyColor[idx + 2] = Math.floor(255 - val);
-//             dummyColor[idx + 3] = 255;
-//         }
-//     }
-//     buildTerrainFromPixels(dummyColor, dummyHeight, gridWidth, gridDepth, 7.0, false);
-// }
-
-// Load uploaded image via File Input
-// document.getElementById('imageUpload').addEventListener('change', function (e) {
-//     const file = e.target.files && e.target.files[0];
-//     if (file) {
-//         const reader = new FileReader();
-//         reader.onload = function (evt) {
-//             const img = new Image();
-//             img.onload = () => {
-//                 const c = document.createElement('canvas');
-//                 c.width = 36;
-//                 c.height = 36;
-//                 const ctx = c.getContext('2d');
-//                 ctx.drawImage(img, 0, 0, 36, 36);
-//                 const pixels = ctx.getImageData(0, 0, 36, 36).data;
-//                 buildTerrainFromPixels(pixels, pixels, 36, 36, 7.0, true);
-//             };
-//             img.src = evt.target.result;
-//         };
-//         reader.readAsDataURL(file);
-//     }
-// });
-
-// Load colormap.png & heightmap.png from local folder on startup
-loadTerrainFromLocalFolder('colormap.png', 'heightmap.png');
-
-// -----------------------------------------------------------------------------
-// MANUAL KEYBOARD CAMERA CONTROLS
-// -----------------------------------------------------------------------------
-let cameraAngle = Math.PI / 4;  // Orbital rotation angle
-let cameraRadius = 35.0;         // Distance from center
-let cameraHeight = 18.0;         // Elevation along Y-axis
-const LOOK_AT = [0.0, 2.0, 0.0];
-const UP = [0.0, 1.0, 0.0];
-
-const keys = {};
-
-window.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-});
-
-window.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-});
-
-function updateCameraFromKeys() {
-    const rotSpeed = 0.03;
-    const zoomSpeed = 0.5;
-    const heightSpeed = 0.4;
-
-    if (keys['KeyA'] || keys['ArrowLeft']) cameraAngle -= rotSpeed;
-    if (keys['KeyD'] || keys['ArrowRight']) cameraAngle += rotSpeed;
-    if (keys['KeyW'] || keys['ArrowUp']) cameraRadius = Math.max(5.0, cameraRadius - zoomSpeed);
-    if (keys['KeyS'] || keys['ArrowDown']) cameraRadius = Math.min(120.0, cameraRadius + zoomSpeed);
-    if (keys['KeyQ']) cameraHeight = Math.min(80.0, cameraHeight + heightSpeed);
-    if (keys['KeyE']) cameraHeight = Math.max(1.0, cameraHeight - heightSpeed);
-
-    if (keys['KeyR']) {
-        cameraAngle = Math.PI / 4;
-        cameraRadius = 35.0;
-        cameraHeight = 18.0;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// LEVEL 3: Sky Objects Path (Bézier Curve)
-// -----------------------------------------------------------------------------
 const skyBezierPath = {
-    p0: [-15.0, 8.0, -15.0],
-    p1: [-5.0, 14.0, 5.0],
-    p2: [5.0, 4.0, 15.0],
-    p3: [15.0, 10.0, -10.0]
+    p0: [-10, 7, -10],
+    p1: [-4, 11, 4],
+    p2: [4, 6, 10],
+    p3: [10, 8, -7]
 };
 
-// Three flying stars with different sizes and positions along the path
+// Different phases to make the stars move differently
 const flyingStars = [
-    { size: 1.2, phase: 0.0 },
+    { size: 1.2, phase: 0 },
     { size: 0.85, phase: 0.67 },
     { size: 0.55, phase: 1.33 }
 ];
 
-// Each star is assembled from six cubes
 const starParts = [
-    { offset: [0.0, 0.0, 0.0], scale: 0.75 },
-    { offset: [0.0, 0.0, -1.0], scale: 0.65 },
-    { offset: [0.85, 0.0, -0.4], scale: 0.65 },
-    { offset: [0.55, 0.0, 0.75], scale: 0.65 },
-    { offset: [-0.55, 0.0, 0.75], scale: 0.65 },
-    { offset: [-0.85, 0.0, -0.4], scale: 0.65 }
+    { offset: [0, 0, 0], scale: 0.75 },
+    { offset: [0, 0, -1], scale: 0.65 },
+    { offset: [0.85, 0, -0.4], scale: 0.65 },
+    { offset: [0.55, 0, 0.75], scale: 0.65 },
+    { offset: [-0.55, 0, 0.75], scale: 0.65 },
+    { offset: [-0.85, 0, -0.4], scale: 0.65 }
 ];
 
-const STAR_COLOR = [1.0, 0.78, 0.15];
+const STAR_COLOR = [1, 0.78, 0.15];
+const STAR_ROTATION = Math.PI / 4;
 
-// -----------------------------------------------------------------------------
-// Step 7. Render Loop
-// -----------------------------------------------------------------------------
+function buildGrid(level) {
+    const result = [];
+    const center = (GRID_SIZE - 1) / 2;
+    const cubeSize = TERRAIN_SIZE / GRID_SIZE;
+
+    for (let row = 0; row < GRID_SIZE; row++) {
+        for (let col = 0; col < GRID_SIZE; col++) {
+            const height = level === '1bc' // random height for Level 1bc
+                ? 0.5 + Math.random() * 4
+                : 1.0;
+
+            result.push({
+                position: [
+                    (col - center) * cubeSize,
+                    height / 2,
+                    (row - center) * cubeSize
+                ],
+                scale: [cubeSize, height, cubeSize]
+            });
+        }
+    }
+
+    return result;
+}
+
+function buildImageGrid(gridSize, colorPixels, heightPixels) {
+    const result = [];
+    const center = (gridSize - 1) / 2;
+    const maxRadius = Math.hypot(center, center);
+    const cubeSize = TERRAIN_SIZE / gridSize;
+
+    for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+            const index = (row * gridSize + col) * 4;
+            const color = [
+                colorPixels[index] / 255,
+                colorPixels[index + 1] / 255,
+                colorPixels[index + 2] / 255
+            ];
+
+            const gray = (
+                0.299 * heightPixels[index] +
+                0.587 * heightPixels[index + 1] +
+                0.114 * heightPixels[index + 2]
+            ) / 255;
+            const stormAmount = Math.max(
+                0,
+                (gray - OCEAN_THRESHOLD) / (1 - OCEAN_THRESHOLD)
+            );
+            const distance = Math.hypot(col - center, row - center) / maxRadius;
+            // Add a center-to-edge height change when the map is too flat.
+            const centerBoost = 1 - distance;
+            // The height map is subtle --> more vertical scale
+            const height = (
+                MIN_HEIGHT + stormAmount * (1 + centerBoost * 3)
+            ) * TERRAIN_HEIGHT_SCALE;
+
+            result.push({
+                position: [
+                    (col - center) * cubeSize,
+                    height / 2,
+                    (row - center) * cubeSize
+                ],
+                scale: [cubeSize, height, cubeSize],
+                color
+            });
+        }
+    }
+
+    return result;
+}
+
+// Rebuild the map terrain after both images load or resolution changes (lv2)
+function updateImageGrid() {
+    if (
+        (currentLevel !== '2' && currentLevel !== '3' && currentLevel !== '4') ||
+        !colorMapImage.naturalWidth || !heightMapImage.naturalWidth
+    ) {
+        return;
+    }
+
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = imageGridSize;
+    sampleCanvas.height = imageGridSize;
+    const context = sampleCanvas.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+        throw new Error('Could not create a 2D canvas context to sample the image.');
+    }
+    // Resample both maps to match the new grid resolution
+    context.drawImage(colorMapImage, 0, 0, imageGridSize, imageGridSize);
+    const colorPixels = context.getImageData(0, 0, imageGridSize, imageGridSize).data;
+    context.clearRect(0, 0, imageGridSize, imageGridSize);
+    context.drawImage(heightMapImage, 0, 0, imageGridSize, imageGridSize);
+    const heightPixels = context.getImageData(0, 0, imageGridSize, imageGridSize).data;
+    cubes = buildImageGrid(imageGridSize, colorPixels, heightPixels);
+}
+
+function selectLevel(level) {
+    if (level === '2' || level === '3' || level === '4') {
+        currentLevel = level;
+        resolutionSelect.disabled = false;
+        cubes = [];
+        updateImageGrid();
+        return;
+    }
+
+    if (level !== '1a' && level !== '1bc') {
+        console.warn(`Level ${level} has not been implemented yet.`);
+        levelSelect.value = currentLevel;
+        return;
+    }
+
+    currentLevel = level;
+    resolutionSelect.disabled = true;
+    cubes = buildGrid(level);
+}
+
+levelSelect.addEventListener('change', () => selectLevel(levelSelect.value));
+resolutionSelect.addEventListener('change', () => {
+    imageGridSize = Number(resolutionSelect.value);
+    updateImageGrid();
+});
+selectLevel(levelSelect.value);
+colorMapImage.onload = updateImageGrid;
+heightMapImage.onload = updateImageGrid;
+colorMapImage.onerror = () => {
+    const message = 'Could not load colormap.png. Check that the image is in the project folder.';
+    console.error(message);
+    alert(message);
+};
+heightMapImage.onerror = () => {
+    const message = 'Could not load heightmap.png. Check that the image is in the project folder.';
+    console.error(message);
+    alert(message);
+};
+colorMapImage.src = 'colormap.png';
+heightMapImage.src = 'heightmap.png';
+
+// Camera and rendering
 gl.enable(gl.DEPTH_TEST);
-gl.clearColor(0.10, 0.12, 0.16, 1.0);
+gl.clearColor(0.1, 0.12, 0.16, 1.0);
 
 function resizeCanvas() {
     const width = canvas.clientWidth;
@@ -525,86 +395,77 @@ function resizeCanvas() {
 function render(timeInMilliseconds) {
     resizeCanvas();
     const seconds = timeInMilliseconds / 1000;
-
-    // 1. Process Keyboard Controls & Set Camera Position
-    updateCameraFromKeys();
-
+    const angle = seconds * 0.3;
     const eye = [
-        cameraRadius * Math.cos(cameraAngle),
-        cameraHeight,
-        cameraRadius * Math.sin(cameraAngle),
+        35 * Math.cos(angle),
+        18,
+        35 * Math.sin(angle)
     ];
+    const viewMatrix = lookAt(eye, [0, 0, 0], [0, 1, 0]);
+    const projectionMatrix = perspective(
+        45 * Math.PI / 180,
+        canvas.width / canvas.height,
+        0.1,
+        100
+    );
 
-    const viewMatrix = lookAt(eye, LOOK_AT, UP);
-    const aspect = canvas.width / canvas.height;
-    const projectionMatrix = perspective(45 * Math.PI / 180, aspect, 0.1, 150.0);
-
-    gl.uniformMatrix4fv(u_view, false, viewMatrix);
-    gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
-
+    gl.uniformMatrix4fv(uView, false, viewMatrix);
+    gl.uniformMatrix4fv(uProjection, false, projectionMatrix);
+    const useMapColor = currentLevel === '2' || currentLevel === '3' || currentLevel === '4';
+    gl.uniform1f(uUseMapColor, useMapColor ? 1 : 0);
+    gl.uniform1f(uUseFog, currentLevel === '4' ? 1 : 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // 2. Draw Terrain Cubes (Level 2)
-    for (let i = 0; i < groundObjects.length; i++) {
-        const obj = groundObjects[i];
-        gl.uniformMatrix4fv(u_model, false, makeModelMatrix(obj.position, obj.scale));
-        gl.uniform3fv(u_color, obj.color);
+    for (const cube of cubes) {
+        gl.uniformMatrix4fv(
+            uModel,
+            false,
+            makeModelMatrix(cube.position, cube.scale)
+        );
+        if (useMapColor) {
+            gl.uniform3fv(uMapColor, cube.color);
+        }
         gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
     }
 
-
-    // 3. Draw Three Flying Stars along Bézier Curve (Level 3)
-
-    for (let s = 0; s < flyingStars.length; s++) {
-
-        const star = flyingStars[s];
-
-        // Calculate an individual forward-and-backward animation cycle
-        const cycle = (seconds * 0.2 + star.phase) % 2.0;
-        const t = cycle <= 1.0 ? cycle : 2.0 - cycle;
-
-        // Find the star's position along the Bézier curve
-        const starPos = evaluateCubicBezier(
-            skyBezierPath.p0,
-            skyBezierPath.p1,
-            skyBezierPath.p2,
-            skyBezierPath.p3,
-            t
-        );
-        // Raise the stars higher above the terrain
-        starPos[1] += 5.0;
-
-        // Draw the six cubes that form this star
-        for (let i = 0; i < starParts.length; i++) {
-
-            const part = starParts[i];
-
-            const pos = [
-                starPos[0] + part.offset[0] * star.size,
-                starPos[1] + part.offset[1] * star.size,
-                starPos[2] + part.offset[2] * star.size
-            ];
-
-            const cubeScale = [
-                part.scale * star.size,
-                part.scale * star.size,
-                part.scale * star.size
-            ];
-
-            gl.uniformMatrix4fv(
-                u_model,
-                false,
-                makeModelMatrix(pos, cubeScale)
+    if (currentLevel === '3' || currentLevel === '4') {
+        for (const star of flyingStars) {
+            const cycle = (seconds * 0.2 + star.phase) % 2;
+            const t = cycle <= 1 ? cycle : 2 - cycle;
+            const starPosition = evaluateBezier(
+                skyBezierPath.p0,
+                skyBezierPath.p1,
+                skyBezierPath.p2,
+                skyBezierPath.p3,
+                t
             );
+            starPosition[1] += 3;
 
-            gl.uniform3fv(u_color, STAR_COLOR);
+            const cosine = Math.cos(STAR_ROTATION);
+            const sine = Math.sin(STAR_ROTATION);
+            for (const part of starParts) {
+                const offsetX = part.offset[0] * star.size;
+                const offsetZ = part.offset[2] * star.size;
+                const position = [
+                    starPosition[0] + cosine * offsetX + sine * offsetZ,
+                    starPosition[1] + part.offset[1] * star.size,
+                    starPosition[2] - sine * offsetX + cosine * offsetZ
+                ];
+                const size = part.scale * star.size;
+                const scale = [size, size, size];
 
-            gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+                gl.uniformMatrix4fv(
+                    uModel,
+                    false,
+                    makeModelMatrix(position, scale, STAR_ROTATION) // same rotation for layout and star cubes
+                );
+                gl.uniform3fv(uMapColor, STAR_COLOR);
+                gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+            }
         }
     }
 
     requestAnimationFrame(render);
 }
 
-// Start Render Loop
 requestAnimationFrame(render);
