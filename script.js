@@ -338,21 +338,15 @@ function updateImageGrid() {
 }
 
 function selectLevel(level) {
+    currentLevel = level;
+    
     if (level === '2' || level === '3' || level === '4') {
-        currentLevel = level;
         resolutionSelect.disabled = false;
         cubes = [];
         updateImageGrid();
         return;
     }
 
-    if (level !== '1a' && level !== '1bc') {
-        console.warn(`Level ${level} has not been implemented yet.`);
-        levelSelect.value = currentLevel;
-        return;
-    }
-
-    currentLevel = level;
     resolutionSelect.disabled = true;
     cubes = buildGrid(level);
 }
